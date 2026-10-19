@@ -23,9 +23,6 @@ if %errorlevel%==0 (
 rem --- 2) 再试几个常见的 Node.js 安装位置 ---
 if exist "%ProgramFiles%\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
 if not defined NODE_EXE if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Programs\nodejs\node.exe"
-if not defined NODE_EXE if exist "D:\nodejs\node.exe" set "NODE_EXE=D:\nodejs\node.exe"
-rem 最后试一次 DSH（DeepSeek Harness）自带的 node，用 %USERPROFILE% 动态取路径，不写死用户名
-if not defined NODE_EXE if exist "%USERPROFILE%\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe" set "NODE_EXE=%USERPROFILE%\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe"
 if defined NODE_EXE goto :found
 
 echo.

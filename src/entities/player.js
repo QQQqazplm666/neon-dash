@@ -6,8 +6,14 @@
 //     drawPlayerSprite(ctx, skin, opts)      —— 画一只完整皮肤（发光/本体/眼睛/特效）
 //   商城预览必须调用同一个 drawPlayerSprite，避免出现「商城里长这样、玩起来长那样」。
 //
+// 【关于图片皮肤（v1.4）】
+//   skin.image 存在时（两款内嵌 base64 皮肤：fatblob / iceblob），本体改用 ctx.drawImage 铺满精灵矩形，
+//   程序化的形状/眼睛/流光让位给位图；外发光、残影拖尾照旧按 colors 生效。
+//   位图是**异步解码**的：模块内惰性 new Image() 并缓存，解码完成前自动回退到
+//   程序化绘制 —— 既不抛异常，也不会画出空白。渲染循环里不新建任何对象/Image。
+//
 // 【关于性能】
-//   玩家的竖向渐变如果每帧 createLinearGradient 会很浪费。
+//   程序化皮肤的竖向渐变如果每帧 createLinearGradient 会很浪费。
 //   这里把「本体 + 描边 + 高光」离屏烘焙成一张小贴图（每种皮肤/尺寸只烘焙一次），
 //   每帧只做一次 drawImage，发光用 shadowBlur 实时叠加（这样脉冲特效还能动）。
 //   这样既不违反「每帧不重复建渐变」，也比每帧画复杂路径更快。
@@ -76,6 +82,31 @@ export function pathSkinShape(ctx, shape, x, y, w, h) {
 
 const SPRITE_PAD = 4;                    // 给描边留的边距
 const spriteCache = new Map();           // key: 皮肤id|宽x高 → 离屏 canvas
+
+// ---------- 图片皮肤（base64 内嵌位图）----------
+// 惰性创建 + 永久缓存：每个 data URI 只 new 一次 Image()，渲染循环里只读不建。
+// 缓存里存 null 表示「这个环境没有 Image（比如无头测试）」→ 直接走程序化绘制。
+const imageCache = new Map();            // key: data URI → HTMLImageElement | null
+
+/** 取某图片皮肤的位图；环境不支持或未配置 image 时返回 null */
+function getSkinImage(skin) {
+  const src = skin.image;
+  if (!src) return null;
+  if (imageCache.has(src)) return imageCache.get(src);
+  if (typeof Image === 'undefined') {
+    imageCache.set(src, null);
+    return null;
+  }
+  const img = new Image();
+  img.src = src;                         // 赋值即开始异步解码，解码完 complete=true
+  imageCache.set(src, img);
+  return img;
+}
+
+/** 位图是否已经解码到可以画的程度（解码中/失败都返回 false → 回退程序化绘制） */
+function imageReady(img) {
+  return !!img && img.complete && img.naturalWidth > 0;
+}
 
 /** 取得（必要时烘焙）某皮肤某尺寸的本体贴图；无 DOM 时返回 null */
 function getSprite(skin, w, h) {
@@ -146,6 +177,20 @@ export function drawPlayerSprite(ctx, skin, o) {
     glowAlpha = 0.85 + 0.15 * Math.sin(time * 9);
   }
   if (o.dim) glowAlpha *= 0.55;
+
+  // —— 图片皮肤：位图铺满精灵矩形（96×120 → w×h，比例一致，不做拉伸畸变），
+  //    外发光照旧用 shadowBlur 叠在图片轮廓外围。解码未完成时落到下面的程序化分支。
+  const bitmap = getSkinImage(skin);
+  if (imageReady(bitmap)) {
+    ctx.shadowColor = col.glow;
+    ctx.shadowBlur = blur;               // imageSmoothingEnabled 保持默认（开启）缩放更细腻
+    ctx.globalAlpha = alpha * glowAlpha;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = alpha;
+    ctx.restore();
+    return;                              // 位图自带眼睛/细节，不再叠程序化的眼睛与流光
+  }
 
   const sprite = getSprite(skin, w, h);
   if (sprite) {

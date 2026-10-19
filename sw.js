@@ -9,7 +9,7 @@
 // 改完 sw.js 记得把下面的 CACHE_NAME 也换一个版本号，好让旧缓存被清掉。
 // ============================================================
 
-const CACHE_NAME = 'neon-dash-v6';   // 换一次版本号，激活时会删掉旧缓存（v1.3：无尽模式三种新机制）
+const CACHE_NAME = 'neon-dash-v8';   // 换一次版本号，激活时会删掉旧缓存（v1.4：旧图片皮肤下线，只留两款内嵌图片皮肤 + 得意胖子 0 金币免费领取）
 
 // 需要预缓存的清单（相对 sw.js 所在目录）
 const PRECACHE = [
@@ -24,6 +24,7 @@ const PRECACHE = [
   './src/main.js',
   './src/config.js',
   './src/data/skins.js',
+  './src/data/skin-images.js',      // v1.4：两款图片皮肤（fatblob / iceblob）的 base64 精灵（内嵌，无图片文件）
   './src/data/levels.js',           // v1.2：闯关关卡数据
   './src/core/engine.js',
   './src/core/input.js',

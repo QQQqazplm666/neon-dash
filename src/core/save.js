@@ -36,6 +36,9 @@ export function defaultSave() {
     totalDistance: 0,
     totalCoins: 0,
     wallet: INITIAL_WALLET,            // 跨局钱包：结算时把本局金币存进来
+    // 用户要求：旧的图片皮肤下线、得意胖子免费领取 —— 初始拥有列表【只有 classic】。
+    // price === 0 的 fatblob 是「免费但要手动领取」，绝不放进这里，
+    // 否则开局就自动拥有、商城里也就领不了了（免费 ≠ 默认拥有）。
     ownedSkins: [DEFAULT_SKIN_ID],     // 默认皮肤开局就拥有
     equippedSkin: DEFAULT_SKIN_ID,     // 当前装备（只影响外观）
     settings: {
@@ -99,6 +102,10 @@ export class Save {
   /**
    * v1.1 迁移：钱包 + 皮肤字段。任何脏数据都清洗成合法值，绝不抛错。
    * 单独抽成方法，方便测试直接构造旧存档验证。
+   *
+   * 【用户要求：旧的图片皮肤下线、得意胖子免费领取】这里【没有】任何「price === 0 就等于
+   * 已拥有」的逻辑（以前也没有），只保证 classic 默认拥有；已被下线的皮肤 id
+   * 会被 hasSkin() 过滤掉，若它正好是 equippedSkin，就会自动回退到 classic。
    */
   _migrateWalletAndSkins(base) {
     // ---- 钱包：必须是 >= 0 的整数 ----
@@ -213,6 +220,9 @@ export class Save {
 
   /**
    * 买皮肤：钱包不够 / 已经拥有 / id 非法都返回明确原因，绝不静默失败。
+   * 【用户要求：得意胖子免费领取】price === 0 时这里就是「免费领取」：
+   * 扣 0 金币、写进 ownedSkins、立刻存档（调用方通常紧接着 equipSkin 装备）。
+   * 注意：能领到的前提是【尚未拥有】—— 0 价不等于默认拥有。
    * @returns {{ok:boolean, reason?:string, skin?:object, wallet:number}}
    */
   buySkin(id) {

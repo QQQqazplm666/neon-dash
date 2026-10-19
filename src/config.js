@@ -7,7 +7,7 @@
 
 export const GAME_NAME = '霓虹冲刺';        // 中文标题
 export const GAME_NAME_EN = 'NEON DASH';    // 英文副标题
-export const VERSION = '1.3.0';             // 存档版本 / 显示用版本号
+export const VERSION = '1.4.0';             // 存档版本 / 显示用版本号
 
 // ---------------- 设计分辨率（竖屏优先） ----------------
 export const DESIGN_WIDTH = 720;

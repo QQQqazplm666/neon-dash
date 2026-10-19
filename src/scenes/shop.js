@@ -7,10 +7,15 @@
 //      跑起来就是什么样（绝对不写第二套画法）。
 //   2) 皮肤只影响外观：这里不做任何数值改动，装备完立刻生效（下一局就换皮）。
 //   3) 金币不足时按钮变灰 + 明确提示「还差多少」，绝不静默失败。
+//   4) 【用户要求：旧的图片皮肤下线、得意胖子免费领取】price === 0 的皮肤分两种：
+//      classic 开局默认拥有（本来就在 ownedSkins 里）；
+//      fatblob 免费但【不默认拥有】—— 卡片与按钮显示「免费领取」，
+//      玩家必须亲手点一下才写进 ownedSkins（领取后立即装备）。
+//      「免费」与「默认拥有」是两件事，这里绝不把 price === 0 当成已拥有。
 //
 // 【操作】
-//   键盘：←/→ 左右选、↑/↓ 上下选、回车 购买或装备、Esc 返回菜单
-//   触摸：点卡片选中 → 点右下「购买 / 装备」按钮；点「返回菜单」回菜单
+//   键盘：←/→ 左右选、↑/↓ 上下选、回车 购买 / 领取 / 装备、Esc 返回菜单
+//   触摸：点卡片选中 → 点右下「购买 / 领取 / 装备」按钮；点「返回菜单」回菜单
 // ============================================================
 import { Scene } from '../core/scenes.js';
 import * as C from '../config.js';
@@ -27,8 +32,8 @@ const CARD_W = 296;
 const CARD_H = 176;
 const GAP_X = 28;
 const GAP_Y = 18;
-// 【v1.3 分页】皮肤变多（13 款）以后，原来「所有卡片一路往下排、按钮排在最后一行下面」
-// 的做法会把按钮顶到屏幕外（13 款 = 7 行 → 按钮落在 y≈1580，设计高度只有 1280）。
+// 【v1.3 分页】皮肤变多（v1.4 共 15 款）以后，原来「所有卡片一路往下排、按钮排在最后一行下面」
+// 的做法会把按钮顶到屏幕外（15 款 = 8 行 → 按钮落在设计高度 1280 之外）。
 // 所以改成固定每页 2×4 = 8 张：按钮位置由 ROWS 算死、翻页只换卡片，按钮永远不动。
 const ROWS = 4;
 const PER_PAGE = COLS * ROWS;
@@ -191,7 +196,7 @@ export class ShopScene extends Scene {
     this.game.scenes.pop();
   }
 
-  /** 主操作：已装备→提示；已拥有→装备；未拥有→购买（够钱就顺手装备） */
+  /** 主操作：已装备→提示；已拥有→装备；未拥有→购买，0 金币的（fatblob）走「免费领取」 */
   _primary() {
     const g = this.game;
     const skin = this.list[this.index];
@@ -215,12 +220,21 @@ export class ShopScene extends Scene {
       return;
     }
 
+    // 用户要求：得意胖子 0 金币免费领取 —— 和购买走同一条写档路径
+    // （save.buySkin 扣 0 金币、写 ownedSkins、存档），只是文案与音效换了说法，
+    // 保证「免费领取」不会变成另一套可能出错的逻辑。
+    const free = skin.price === 0;
     const r = g.save.buySkin(skin.id);
     if (r.ok) {
       g.audio.buy();
       const e = g.save.equipSkin(skin.id);
       if (e.ok) g.audio.equip();
-      this._say('已购买并装备 ' + skin.name + '（-' + skin.price + ' 金币）', C.COLORS.neonGreen);
+      this._say(
+        free
+          ? '已免费领取并装备 ' + skin.name + '（0 金币）'
+          : '已购买并装备 ' + skin.name + '（-' + skin.price + ' 金币）',
+        C.COLORS.neonGreen,
+      );
     } else if (r.reason === 'poor') {
       g.audio.deny();
       this._say('金币不足：还差 ' + (r.need || 0) + ' 金币', C.COLORS.danger);
@@ -323,7 +337,7 @@ export class ShopScene extends Scene {
     ctx.textAlign = 'center';
     ctx.font = '500 22px "Microsoft YaHei", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText('← → ↑ ↓ 选择　·　回车 购买 / 装备　·　‹ › 翻页　·　Esc 返回', W / 2, this.hintY);
+    ctx.fillText('← → ↑ ↓ 选择　·　回车 购买 / 领取 / 装备　·　‹ › 翻页　·　Esc 返回', W / 2, this.hintY);
 
     // —— 操作反馈（购买成功 / 金币不足都走这里，绝不静默） ——
     if (this.toast) {
@@ -352,7 +366,9 @@ export class ShopScene extends Scene {
     const skin = this.list[this.index];
     if (!skin) return '';
     if (save.equippedSkin === skin.id) return '当前装备：' + skin.name;
+    // 用户要求：0 金币的皮肤显示「免费领取」，而不是「花 0 金币购买」
     if (save.ownsSkin(skin.id)) return '按回车装备「' + skin.name + '」';
+    if (skin.price === 0) return '按回车免费领取「' + skin.name + '」（0 金币，领取后立即装备）';
     if (save.wallet >= skin.price) return '按回车花 ' + skin.price + ' 金币购买「' + skin.name + '」';
     return '「' + skin.name + '」还差 ' + (skin.price - save.wallet) + ' 金币，去跑一局赚金币吧';
   }
@@ -365,13 +381,17 @@ export class ShopScene extends Scene {
     if (!skin) return;
     const equipped = save.equippedSkin === skin.id;
     const owned = save.ownsSkin(skin.id);
-    const poor = !owned && save.wallet < skin.price;
+    // 用户要求：只有 price > 0 才可能「买不起」；0 金币的皮肤永远是「免费领取」，
+    // 绝不能被钱包余额（哪怕是 0）判成置灰买不起。
+    const free = !owned && skin.price === 0;
+    const poor = !owned && skin.price > 0 && save.wallet < skin.price;
 
     let label;
     let sub = '';
     let color = skin.colors.glow || C.COLORS.neonCyan;
     if (equipped) { label = '已装备'; sub = '去跑一局试试手感'; }
     else if (owned) { label = '装 备'; sub = '立即生效（下一局换皮）'; }
+    else if (free) { label = '免费领取'; sub = '0 金币 · 领了就归你'; }
     else { label = '购买  ' + skin.price + ' 金币'; sub = poor ? '还差 ' + (skin.price - save.wallet) + ' 金币' : '余额 ' + save.wallet + ' → ' + (save.wallet - skin.price); }
 
     drawNeonButton(ctx, r, label, {
@@ -388,7 +408,7 @@ export class ShopScene extends Scene {
     const save = this.game.save;
     const equipped = save.equippedSkin === skin.id;
     const owned = save.ownsSkin(skin.id);
-    const poor = !owned && save.wallet < skin.price;
+    const poor = !owned && skin.price > 0 && save.wallet < skin.price;
 
     ctx.save();
     // 卡底
@@ -442,6 +462,10 @@ export class ShopScene extends Scene {
     } else if (owned) {
       ctx.fillStyle = C.COLORS.neonCyan;
       ctx.fillText('已拥有', tx, rect.y + 122);
+    } else if (skin.price === 0) {
+      // 用户要求：0 金币的未拥有皮肤标「免费领取」，不显示成「0 金币」
+      ctx.fillStyle = C.COLORS.neonGreen;
+      ctx.fillText('免费领取', tx, rect.y + 122);
     } else {
       ctx.fillStyle = poor ? C.COLORS.danger : C.COLORS.neonYellow;
       ctx.beginPath();

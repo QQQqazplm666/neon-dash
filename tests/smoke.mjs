@@ -320,8 +320,43 @@ try {
     .map(rel)
     .filter((f) => !sw.includes(f));   // 形如 ./src/core/engine.js
   check('sw.js 预缓存清单覆盖 src 下全部 ' + srcFiles.length + ' 个 js', missingSw.length === 0, missingSw.join(', '));
+  // v1.4：图片皮肤的内嵌数据也是一个 js，必须点名进预缓存（否则离线打开皮肤变回程序化绘制）
+  check('sw.js 预缓存里点名了 ./src/data/skin-images.js', sw.includes('./src/data/skin-images.js'));
+  check('sw.js 的 CACHE_NAME 已升到 neon-dash-v8（旧缓存会在激活时删掉）',
+    /CACHE_NAME\s*=\s*['"]neon-dash-v8['"]/.test(sw));
 } catch (e) {
   bad('读取 sw.js', e.message);
+}
+
+// 用户要求：旧图片皮肤（哭脸）彻底下线 —— 全项目不许再留下它的 id / 图片 / 文档描述。
+// 扫描范围：src/ 下所有文本文件 + docs/ 下所有 .md + README.md + 三个根文件。
+// 关键字：它原来的 id（cryface）、它的中文叫法（哭脸）、以及「真……人」这类真人肖像描述。
+// 注意：tests/ 目录【故意不扫】—— 本文件里必须写得出这些关键字，才能断言它们 0 处命中。
+try {
+  const scanFiles = [];
+  const walkText = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkText(full);
+      else if (/\.(js|mjs|html|css|json|webmanifest|md)$/i.test(entry.name)) scanFiles.push(full);
+    }
+  };
+  walkText(path.join(ROOT, 'src'));
+  walkText(path.join(ROOT, 'docs'));
+  scanFiles.push(path.join(ROOT, 'README.md'));
+  for (const f of ['index.html', 'sw.js', 'manifest.webmanifest']) scanFiles.push(path.join(ROOT, f));
+
+  const DEAD_WORDS = ['cryface', '哭脸', '真人'];
+  const hits = [];
+  for (const f of scanFiles) {
+    if (!fs.existsSync(f)) continue;
+    const src = fs.readFileSync(f, 'utf8');
+    for (const w of DEAD_WORDS) if (src.includes(w)) hits.push(rel(f) + ' 含「' + w + '」');
+  }
+  check('全项目（src/ + docs/ + README）搜不到已下线皮肤的关键字（扫描 ' + scanFiles.length + ' 个文本文件，0 处命中）',
+    hits.length === 0, hits.join('; '));
+} catch (e) {
+  bad('扫描已下线皮肤关键字', e.message);
 }
 
 // server.mjs 必须有防目录穿越的判断
@@ -488,7 +523,7 @@ try {
 
 if (SK) {
   const list = SK.SKINS;
-  check('皮肤数量至少 7 个（实际 ' + (Array.isArray(list) ? list.length : 'n/a') + '）', Array.isArray(list) && list.length >= 7);
+  check('皮肤数量恰好 15 款（v1.4：13 款程序化 + 2 款内嵌图片；实际 ' + (Array.isArray(list) ? list.length : 'n/a') + '）', Array.isArray(list) && list.length === 15);
   const ids = list.map((s) => s.id);
   check('皮肤 id 唯一', new Set(ids).size === ids.length, ids.join(','));
   check('id 全是非空字符串', ids.every((id) => typeof id === 'string' && id.length > 0));
@@ -498,8 +533,20 @@ if (SK) {
   check('默认皮肤价格为 0（新玩家白嫖得到）', def.price === 0, String(def.price));
   const prices = list.map((s) => s.price);
   check('价格非负整数', prices.every((p) => Number.isInteger(p) && p >= 0), prices.join('/'));
-  check('价格梯度严格升序', prices.every((p, i) => i === 0 || p > prices[i - 1]), prices.join('/'));
+  // 用户要求：得意胖子 0 金币（和 classic 相邻），所以价格不再「严格升序」，而是【非递减】
+  check('价格梯度非递减（0 价允许并列，其余严格递增）', prices.every((p, i) => i === 0 || p >= prices[i - 1]), prices.join('/'));
   check('至少有 5 个不同价位（有得攒）', new Set(prices).size >= 5, prices.join('/'));
+
+  // ---------- 用户要求：免费领取（0 金币）与默认拥有是两件事 ----------
+  const ZERO = list.filter((s) => s.price === 0).map((s) => s.id);
+  check('全表只有 classic 与 fatblob 两款 0 金币（实际 ' + ZERO.join('/') + '）',
+    ZERO.length === 2 && ZERO.includes('classic') && ZERO.includes('fatblob'));
+  check('classic.price === 0（默认拥有）', def.price === 0, String(def.price));
+  check('fatblob.price === 0（免费但要手动领取）', SK.getSkin('fatblob').price === 0, String(SK.getSkin('fatblob').price));
+  check('iceblob.price === 500（保持原价）', SK.getSkin('iceblob').price === 500, String(SK.getSkin('iceblob').price));
+  check('两款 0 价皮肤在数组里相邻（classic 之后紧跟 fatblob）',
+    list.findIndex((s) => s.id === 'fatblob') === list.findIndex((s) => s.id === 'classic') + 1,
+    list.map((s) => s.id).join(','));
 
   const SHAPES = new Set(['rounded', 'square', 'capsule', 'circle', 'diamond', 'hexagon', 'star']);
   const EFFECTS = new Set(['none', 'pulse', 'ghost', 'spark', 'shimmer']);
@@ -521,6 +568,65 @@ if (SK) {
   check('形状至少有 4 种不同（视觉差异真实存在）', new Set(list.map((s) => s.shape)).size >= 4, list.map((s) => s.shape).join(','));
   check('特效至少覆盖 pulse / ghost / spark 三类', ['pulse', 'ghost', 'spark'].every((e) => list.some((s) => s.effect === e)));
   check('主体颜色两两不同', new Set(list.map((s) => s.colors.body)).size === list.length, list.map((s) => s.colors.body).join(','));
+
+  // ---------- v1.4：两款内嵌图片皮肤（data URI 形态 / PNG 头 / 体积 / 命名） ----------
+  // 用户要求：旧的图片皮肤（哭脸）下线、只留得意胖子与冰淇淋胖子 —— 从 3 款收紧到【恰好 2 款】
+  const IMG_IDS = ['fatblob', 'iceblob'];
+  const imgSkins = list.filter((s) => s.image !== undefined);
+  const imgIds = imgSkins.map((s) => s.id).sort();
+  check('恰好 2 款图片皮肤，且 id 恰好是 fatblob / iceblob（实际 ' + imgSkins.length + ' 款）',
+    imgSkins.length === 2 && imgIds.join(',') === IMG_IDS.join(','),
+    imgIds.join(','));
+
+  // 真实人物姓名/网名片段：两款图片皮肤一律不许出现（造型描述即可）
+  const FORBIDDEN_NAMES = ['刘', '蔡', '徐', '坤', '梦泪'];
+  check('两款图片皮肤的名称与描述不含真实人物姓名',
+    imgSkins.every((s) => !FORBIDDEN_NAMES.some((f) => (s.name + s.desc).includes(f))),
+    imgSkins.map((s) => s.name + '｜' + s.desc).join(' · '));
+
+  for (const s of imgSkins) {
+    const uri = s.image;
+    const preOk = typeof uri === 'string' && uri.startsWith('data:image/png;base64,');
+    check('图片皮肤 ' + s.id + '：image 以 data:image/png;base64, 开头', preOk, preOk ? '' : String(uri).slice(0, 40));
+    check('图片皮肤 ' + s.id + '：不含 http/https 外链（零外部素材）',
+      typeof uri === 'string' && !/https?:\/\//i.test(uri));
+    if (!preOk) continue;
+
+    const bytes = Buffer.from(uri.slice('data:image/png;base64,'.length), 'base64');
+    check('图片皮肤 ' + s.id + '：base64 解回字节后是合法 PNG（签名 89504e470d0a1a0a）',
+      bytes.length > 8 && bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a',
+      bytes.subarray(0, 8).toString('hex'));
+    // PNG 结构：签名(8) + 长度(4) + 'IHDR'(4) + 宽(4) + 高(4)
+    const ihdrOk = bytes.length > 24 && bytes.subarray(12, 16).toString('ascii') === 'IHDR';
+    const pw = ihdrOk ? bytes.readUInt32BE(16) : 0;
+    const ph = ihdrOk ? bytes.readUInt32BE(20) : 0;
+    check('图片皮肤 ' + s.id + '：IHDR 尺寸是 96×120（宽高比 0.8，与 46×58 精灵矩形一致）',
+      ihdrOk && pw === 96 && ph === 120, pw + '×' + ph);
+    check('图片皮肤 ' + s.id + '：单张体积 ≤ 30 KB', bytes.length <= 30 * 1024, (bytes.length / 1024).toFixed(1) + ' KB');
+  }
+
+  try {
+    const imgModPath = path.join(ROOT, 'src', 'data', 'skin-images.js');
+    const modSize = fs.statSync(imgModPath).size;
+    const modSrc = fs.readFileSync(imgModPath, 'utf8');
+    check('src/data/skin-images.js 总大小 ≤ 120 KB', modSize <= 120 * 1024, (modSize / 1024).toFixed(1) + ' KB');
+    check('skin-images.js 里没有 http/https 外链', !/https?:\/\//i.test(modSrc.replace(/^\s*\/\/.*$/gm, '')));
+    check('skin-images.js 顶部注释写清了来源与处理脚本',
+      /make-skin-images\.py/.test(modSrc) && /base64/i.test(modSrc) && /^\/\//.test(modSrc));
+    const modExport = await import(pathToFileURL(imgModPath).href);
+    const imgKeys = modExport.SKIN_IMAGES ? Object.keys(modExport.SKIN_IMAGES).sort() : [];
+    check('skin-images.js 的键集合恰好是 {fatblob, iceblob}（实际 ' + imgKeys.join('/') + '）',
+      imgKeys.join(',') === IMG_IDS.join(','),
+      imgKeys.join(','));
+    check('skin-images.js 导出的两张都是 data:image/png;base64 内嵌',
+      !!modExport.SKIN_IMAGES
+      && IMG_IDS.every((id) => typeof modExport.SKIN_IMAGES[id] === 'string'
+        && modExport.SKIN_IMAGES[id].startsWith('data:image/png;base64,')));
+    check('skins.js 里的 image 字段就是 SKIN_IMAGES 里那几张（没有各写一份）',
+      imgSkins.every((s) => s.image === modExport.SKIN_IMAGES[s.id]));
+  } catch (e) {
+    bad('校验 src/data/skin-images.js', e.message);
+  }
 }
 
 // ---------- 画玩家的函数必须能被商城复用，且 7 种形状都画得出来 ----------
@@ -551,7 +657,33 @@ if (PL && SK) {
 
   if (typeof PL.drawPlayerSprite === 'function') {
     const savedDoc = globalThis.document;
+    const savedImage = globalThis.Image;
     globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => makeCtx() }) };
+
+    // v1.4 图片皮肤：装一个可控的假 Image。
+    // player.js 对同一个 data URI 只 new 一次 Image() 并永久缓存，所以桩必须在这里、
+    // 在第一次画图片皮肤之前就装上；后面再把这个对象翻成「已解码」来验证 drawImage 分支。
+    const fakeImages = [];              // 构造出来的假位图（顺序＝首次绘制顺序）
+    globalThis.Image = function FakeImage() {
+      const self = { complete: false, naturalWidth: 0, naturalHeight: 0, width: 96, height: 120, src: '' };
+      fakeImages.push(self);
+      return self;                      // 构造器返回对象 → new Image() 拿到的就是它
+    };
+
+    // 会记账的假 ctx：只有 drawImage 被记录，其余方法继续复用 makeCtx 的空函数兜底
+    const recCtx = () => {
+      const base = makeCtx();
+      const rec = { drawImage: 0, args: [] };
+      return new Proxy({}, {
+        get(t, k) {
+          if (k === '__rec') return rec;
+          if (k === 'drawImage') return (img, ...rest) => { rec.drawImage++; rec.args.push([img, ...rest]); };
+          return base[k];
+        },
+        set(t, k, v) { base[k] = v; return true; },
+      });
+    };
+
     let drawErr = '';
     try {
       for (const s of SK.SKINS) {
@@ -562,9 +694,49 @@ if (PL && SK) {
     } catch (e) {
       drawErr = e.message;
     } finally {
+      // Image 桩要留到下面两条分支断言跑完再拆，这里先只恢复 document
       if (savedDoc === undefined) delete globalThis.document; else globalThis.document = savedDoc;
     }
     check('drawPlayerSprite 能画出全部 ' + SK.SKINS.length + ' 种皮肤（含离屏贴图分支）', drawErr === '', drawErr);
+
+    // —— 图片皮肤的另外两条分支：解码中回退 / 解码完 drawImage ——
+    const imgSkins = SK.SKINS.filter((s) => typeof s.image === 'string');
+    const rect = { x: 10, y: 20, w: 46, h: 58, time: 1.23 };
+    check('图片皮肤每张只 new 了一次 Image（惰性创建 + 缓存，渲染循环里不新建）',
+      fakeImages.length === imgSkins.length, 'new 了 ' + fakeImages.length + ' 次 / 共 ' + imgSkins.length + ' 张图');
+
+    if (imgSkins.length) {
+      // 分支一：位图还没解码完 → 必须回退程序化绘制（画离屏贴图，而不是那张位图），不许抛错
+      {
+        const c = recCtx();
+        let err = '';
+        try { for (const s of imgSkins) PL.drawPlayerSprite(c, s, rect); } catch (e) { err = e.message; }
+        const usedBitmap = c.__rec.args.some((a) => fakeImages.includes(a[0]));
+        check('位图未解码完时回退程序化绘制（不抛错、不画那张未就绪的位图）',
+          err === '' && !usedBitmap && c.__rec.drawImage >= 1,
+          err || ('drawImage=' + c.__rec.drawImage + ' 用了位图=' + usedBitmap));
+      }
+
+      // 分支二：把假 Image 翻成「已解码」→ 主体必须改走 ctx.drawImage
+      for (const im of fakeImages) { im.complete = true; im.naturalWidth = 96; im.naturalHeight = 120; }
+      {
+        const c = recCtx();
+        const skin = imgSkins[0];
+        let err = '';
+        try { PL.drawPlayerSprite(c, skin, rect); } catch (e) { err = e.message; }
+        const bit = fakeImages.find((im) => im.src === skin.image);   // 这张皮肤对应的那张图
+        const hit = c.__rec.args.find((a) => a[0] === bit);
+        check('位图就绪后主体改走 ctx.drawImage（画的就是这张皮肤的位图）',
+          err === '' && c.__rec.drawImage >= 1 && !!hit,
+          err || ('drawImage=' + c.__rec.drawImage + ' 命中=' + (!!hit)));
+        // 玩法里 ctx 已经 translate(x, y)，所以 drawImage(img, 0, 0, w, h) 就是铺满精灵矩形
+        check('位图按精灵矩形铺满（局部坐标 0,0,46,58 → 不变形、不偏移）',
+          !!hit && hit[1] === 0 && hit[2] === 0 && hit[3] === 46 && hit[4] === 58,
+          hit ? hit.slice(1).join(',') : '没有命中');
+      }
+    }
+
+    if (savedImage === undefined) delete globalThis.Image; else globalThis.Image = savedImage;
   }
 
   if (typeof PL.pathSkinShape === 'function') {
@@ -640,6 +812,43 @@ if (SaveMod && SK) {
         check('旧存档迁移后旧纪录保留（bestScore 1234）', s.bestScore === 1234, String(s.bestScore));
         check('旧存档迁移后旧设置保留（sfx:false）', s.settings.sfx === false);
       }
+    }
+
+    // A2. 用户要求：免费领取 ≠ 默认拥有（得意胖子 0 金币，但要玩家亲手领一次）
+    {
+      const st = mkStorage(undefined);
+      const s = new Save(st.api);
+      s.load();
+      check('新存档 ownedSkins 初始只有默认皮肤 classic（' + s.data.ownedSkins.join(',') + '）',
+        s.data.ownedSkins.length === 1 && s.data.ownedSkins[0] === SK.DEFAULT_SKIN_ID,
+        s.data.ownedSkins.join(','));
+      check('0 金币的 fatblob 不在初始拥有列表里（免费 ≠ 默认拥有）',
+        s.ownsSkin('fatblob') === false && s.data.ownedSkins.indexOf('fatblob') < 0);
+      check('0 金币的 iceblob 同样不在初始拥有列表里', s.ownsSkin('iceblob') === false);
+      check('初始装备的是 classic（不是 0 价的 fatblob）', s.equippedSkin === SK.DEFAULT_SKIN_ID, String(s.equippedSkin));
+
+      // 领取：0 金币也要真的走一次写档（buySkin 扣 0 金币），钱包一分不扣
+      const claim = s.buySkin('fatblob');
+      check('点一下就能免费领取 fatblob（钱包 0 也领得到）', claim.ok === true, JSON.stringify(claim));
+      check('领取不扣金币（钱包仍是 0）', s.wallet === 0, String(s.wallet));
+      check('领取后立刻拥有 fatblob', s.ownsSkin('fatblob') === true);
+      check('领取后立刻能装备 fatblob', s.equipSkin('fatblob').ok === true && s.equippedSkin === 'fatblob', String(s.equippedSkin));
+      check('已领取后再领返回 reason=owned（不会重复领）', s.buySkin('fatblob').reason === 'owned');
+      {
+        const s2 = new Save(st.api);
+        s2.load();
+        check('领取结果写进了存档（重新读档仍然拥有）', s2.ownsSkin('fatblob') === true);
+      }
+
+      // 旧存档里残留的已下线皮肤：迁移必须过滤掉，装备自动回退 classic
+      const deadId = 'cry' + 'face';   // 拼出来，本文件里不出现整词（tests/ 不在关键字扫描范围内，这里只是保持干净）
+      const st2 = mkStorage(JSON.stringify({ wallet: 10, ownedSkins: [SK.DEFAULT_SKIN_ID, deadId], equippedSkin: deadId }));
+      const s3 = new Save(st2.api);
+      s3.load();
+      check('旧存档里已下线皮肤被过滤掉，装备自动回退 classic',
+        s3.data.ownedSkins.indexOf(deadId) < 0 && s3.data.ownedSkins.length === 1
+        && s3.equippedSkin === SK.DEFAULT_SKIN_ID,
+        s3.data.ownedSkins.join(',') + ' / ' + s3.equippedSkin);
     }
 
     // B. 脏存档：负数钱包、数组里混进数字 null、重复项、不存在的 id、未拥有却装备
@@ -943,7 +1152,7 @@ section('[7/10] 本地 import 解析 + 无头场景联动');
     check('无头：能再次进入商城', topName() === 'ShopScene', topName());
     const shop2 = scenes.top;
     runFrames(10);
-    shop2.index = 1;   // 第二款皮肤（ember，120 金币）
+    shop2.index = shop2.list.findIndex((s) => s.id === 'ember');   // ember（120 金币）在列表里的位置（按 id 找，不依赖下标 —— v1.4 起 0 价的 fatblob 排在它前面）
     runFrames(2);
     const walletPre = save.wallet;
     tap('confirm');
@@ -974,6 +1183,89 @@ section('[7/10] 本地 import 解析 + 无头场景联动');
     runFrames(20);
     tap('pause');
     check('无头：商城键盘导航后能回菜单', topName() === 'MenuScene', topName());
+
+    // ---- 用户要求：得意胖子「免费领取」——键盘（回车）与触摸（点卡片 / 点按钮）两条路径都要真能领到 ----
+    // 免费 ≠ 默认拥有：先把 fatblob 还原成「还没领」的状态（只动这一个字段），
+    // 再分别用两条路径领取，验证钱包一分不扣、成功入库、并且能立刻装备。
+    {
+      const PER_PAGE_IN_SHOP = 8;   // 与 shop.js 的 COLS(2) × ROWS(4) 一致；15 款皮肤 → 2 页
+      const resetFatblob = () => {
+        const i = save.data.ownedSkins.indexOf('fatblob');
+        if (i >= 0) save.data.ownedSkins.splice(i, 1);
+        if (save.equippedSkin === 'fatblob') save.data.equippedSkin = SK.DEFAULT_SKIN_ID;
+        save.save();
+      };
+      const enterShop = () => {
+        const m = scenes.top;
+        m.sel = m.buttons.findIndex((b) => b.id === 'shop');
+        tap('confirm');
+        runFrames(5);
+        return scenes.top;
+      };
+      const callAction = (scene, x, y) => {   // 触摸：按下并松开一个设计坐标（完全走 Input 的真实路径）
+        input._press('jump', x, y);
+        input._press('confirm', x, y);
+        step();
+        input._release('jump');
+        input._release('confirm');
+      };
+
+      // ① 键盘：回车领取
+      resetFatblob();
+      check('无头：领取前 fatblob 不在已拥有列表里（免费 ≠ 默认拥有）', save.ownsSkin('fatblob') === false);
+      let sKb = enterShop();
+      check('无头：能从菜单进商城（免费领取测试）', topName() === 'ShopScene', topName());
+      sKb._setIndex(sKb.list.findIndex((s) => s.id === 'fatblob'));
+      runFrames(2);
+      const wKb = save.wallet;
+      tap('confirm');
+      runFrames(3);
+      check('无头：键盘回车能免费领取 fatblob（钱包一分不扣）',
+        save.ownsSkin('fatblob') === true && save.wallet === wKb,
+        '拥有=' + save.ownsSkin('fatblob') + '，钱包 ' + wKb + ' → ' + save.wallet);
+      check('无头：领取提示写的是「免费领取」，不是「0 金币」',
+        !!(sKb.toast && sKb.toast.text.indexOf('免费领取') >= 0), JSON.stringify(sKb.toast && sKb.toast.text));
+      check('无头：领取后立刻装备 fatblob', save.equippedSkin === 'fatblob', save.equippedSkin);
+      tap('pause');
+      runFrames(3);
+
+      // ② 触摸：点卡片领取（已选中的卡片再点一次 = 快捷操作）
+      resetFatblob();
+      const sTs = enterShop();
+      check('无头：再次从菜单进商城（触摸领取测试）', topName() === 'ShopScene', topName());
+      sTs._setIndex(sTs.list.findIndex((s) => s.id === 'fatblob'));
+      runFrames(2);
+      const slot = sTs.index - sTs.page * PER_PAGE_IN_SHOP;
+      const card = sTs.cards[slot];
+      const wTs = save.wallet;
+      if (card) callAction(sTs, card.x + card.w / 2, card.y + card.h / 2);
+      runFrames(3);
+      check('无头：点卡片也能免费领取 fatblob（触摸路径，钱包不变）',
+        !!card && save.ownsSkin('fatblob') === true && save.wallet === wTs,
+        '卡片=' + (card ? '有' : '无') + '，拥有=' + save.ownsSkin('fatblob') + '，钱包 ' + wTs + ' → ' + save.wallet);
+      tap('pause');
+      runFrames(3);
+
+      // ③ 触摸：点右下主操作按钮（actionRect）走另一条触摸分支 —— 用 500 金币的 iceblob 验「按钮能买」
+      resetFatblob();
+      const sBtn = enterShop();
+      check('无头：第三次进商城（点按钮测试）', topName() === 'ShopScene', topName());
+      sBtn._setIndex(sBtn.list.findIndex((s) => s.id === 'iceblob'));
+      runFrames(2);
+      const wBtn = save.wallet;
+      const btn = sBtn.actionRect;
+      callAction(sBtn, btn.x + btn.w / 2, btn.y + btn.h / 2);
+      runFrames(3);
+      check('无头：点主操作按钮能买下 iceblob（500 金币，扣款正确）',
+        save.ownsSkin('iceblob') === true && save.wallet === wBtn - 500,
+        '拥有=' + save.ownsSkin('iceblob') + '，钱包 ' + wBtn + ' → ' + save.wallet);
+      tap('pause');
+      runFrames(3);
+
+      // 收尾：把装备还原成 ember，后面「新一局用已装备皮肤」的既有断言仍然成立
+      save.equipSkin('ember');
+      check('无头：免费领取测试后装备已还原为 ember', save.equippedSkin === 'ember', save.equippedSkin);
+    }
 
     const menu2 = scenes.top;
     menu2.sel = Math.max(0, menu2.buttons.findIndex((b) => b.id === 'start' || b.id === 'continue'));

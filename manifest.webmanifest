@@ -1,7 +1,7 @@
 {
   "name": "霓虹冲刺 Neon Dash",
   "short_name": "霓虹冲刺",
-  "description": "零依赖的 2D 霓虹跑酷游戏，纯 Canvas 绘制，完全离线可玩。",
+  "description": "零依赖的 2D 霓虹跑酷游戏，图形除 2 款内嵌图片皮肤（得意胖子 / 冰淇淋胖子）外全部程序化绘制，完全离线可玩。",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "./index.html",
