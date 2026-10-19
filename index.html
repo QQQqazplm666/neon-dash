@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<!--
+  viewport-fit=cover 让页面铺满刘海屏；user-scalable=no 禁止双指缩放
+  （iOS 会忽略这一项，所以还配合了 CSS 的 touch-action:none 和 JS 里阻止手势）
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0a1f" />
+<meta name="description" content="霓虹冲刺 Neon Dash —— 零依赖的 2D 网页跑酷游戏" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="霓虹冲刺" />
+<title>霓虹冲刺 Neon Dash v1.3.0</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<!-- iOS 不读 manifest 里的图标，只认这一项（「添加到主屏幕」用的就是它） -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='12'%20fill='%230a0a1f'/%3E%3Cpath%20d='M12%2044L30%2016L40%2034L52%2022'%20stroke='%2300f0ff'%20stroke-width='6'%20fill='none'%20stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+  /* 全局禁止选中、禁止高亮、禁止橡皮筋滚动，移动端体验才不会有“抖动” */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #05030f;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    touch-action: none;          /* 禁止浏览器接管触摸手势（滚动/缩放） */
+    overscroll-behavior: none;
+  }
+
+  #game {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    outline: none;
+  }
+
+  /* 覆盖层：本身不吃事件（pointer-events:none），以后要放 DOM 按钮再单独打开 */
+  #ui {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* 首屏 loading 提示：JS 跑起来之后会把它移除 */
+  #loading {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+    color: #8be9ff;
+    font: 600 18px/1.8 "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    letter-spacing: 0.05em;
+    text-shadow: 0 0 16px rgba(0, 240, 255, 0.8);
+  }
+  #loading small { display: block; opacity: 0.5; font-size: 13px; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <!-- 游戏画布：所有画面都画在这里 -->
+  <canvas id="game"></canvas>
+
+  <!-- DOM 覆盖层（当前版本 UI 全部用 Canvas 画，这一层留给以后扩展） -->
+  <div id="ui">
+    <div id="loading">正在加载霓虹冲刺 v1.3.0…<small>零依赖 · 完全离线</small></div>
+  </div>
+
+  <!-- 入口：必须是 type="module"，浏览器原生 ES Modules，不需要打包 -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
